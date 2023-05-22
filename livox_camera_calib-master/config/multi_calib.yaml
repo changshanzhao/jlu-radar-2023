@@ -1,0 +1,17 @@
+# Data path. adjust them!
+common:
+    image_path:  "/home/wujl/calibration/lianhe/5_4/pic"
+    pcd_path:  "/home/wujl/calibration/lianhe/5_4/pcd"
+    result_path:  "/home/wujl/calibration/extrinsic.txt"
+    data_num: 10
+# Camera Parameters. Adjust them!
+camera:
+    camera_matrix: [3514.32845,    0.     ,  954.57526,
+            0.     , 3514.22922,  764.96044,
+            0.     ,    0.     ,    1.     ]
+    dist_coeffs: [-0.057268, 0.195162, -0.001675, -0.001939, 0.000000]
+
+# Calibration Parameters.!
+calib:
+    calib_config_file: "/home/wujl/radar_ws/src/livox_camera_calib-master/config/config_indoor.yaml"
+    use_rough_calib: true # set true if your initial_extrinsic is bad

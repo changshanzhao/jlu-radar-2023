@@ -1,0 +1,5 @@
+<launch>
+    <node pkg="Gxcam" type="Gxcam_node" name="Gxcam_node" output="screen"/>
+
+
+</launch>
