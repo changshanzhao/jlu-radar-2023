@@ -23,9 +23,5 @@
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
 # SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-string Class
-float64 probability
-int64 xmin
-int64 ymin
-int64 xmax
-int64 ymax
+int64 x
+int64 y

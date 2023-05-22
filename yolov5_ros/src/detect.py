@@ -199,7 +199,10 @@ class Yolov5Detector:
                     cv2.putText(im0, f"{torch.sigmoid(d[8]).item():.2f}", pt3, 1, 1, (0, 255, 0))
                     cv2.putText(im0, self.names[int(d[-1])], (pt1[0],pt1[1]+15), 1, 1, (0, 255, 0))
                     cv2.putText(im0, f"{torch.sigmoid(d[8]).item():.2f}", pt2, 1, 1, (0, 255, 0))
-                    p_ave = (int((int(d[0])+int(d[2])+int(d[4])+int(d[6]))/4), int((int(d[1])+int(d[3])+int(d[5])+int(d[7]))/4))
+					bounding_box = BoundingBox()
+					bounding_box.x = int((int(d[0])+int(d[2])+int(d[4])+int(d[6]))/4)
+					bounding_box.y = int((int(d[1])+int(d[3])+int(d[5])+int(d[7]))/4)
+					self.pred_pub.publish(bounding_box)
 
 
         # det = pred[0].cpu().numpy()
