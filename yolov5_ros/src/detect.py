@@ -175,7 +175,7 @@ class Yolov5Detector:
                     s += f"{n} {self.names[int(c)]}{'s' * (n > 1)}, "  # add to string
 
                 # 这块儿应该就是新添功能了
-
+				bounding_boxes = BoundingBoxes()
                 for d in det:
                     pt0 = (int(d[0]), int(d[1]))
                     pt1 = (int(d[2]), int(d[3]))
@@ -202,7 +202,8 @@ class Yolov5Detector:
 					bounding_box = BoundingBox()
 					bounding_box.x = int((int(d[0])+int(d[2])+int(d[4])+int(d[6]))/4)
 					bounding_box.y = int((int(d[1])+int(d[3])+int(d[5])+int(d[7]))/4)
-					self.pred_pub.publish(bounding_box)
+					bounding_boxes.bounding_boxes.append(bounding_box)
+					
 
 
         # det = pred[0].cpu().numpy()
@@ -243,7 +244,7 @@ class Yolov5Detector:
         im0 = annotator.result()
 
         # Publish prediction
-        # self.pred_pub.publish(bounding_boxes)
+        self.pred_pub.publish(bounding_boxes)
 
         # Publish & visualize images
         if self.view_image:
