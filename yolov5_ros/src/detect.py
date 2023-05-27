@@ -202,6 +202,7 @@ class Yolov5Detector:
 					bounding_box = BoundingBox()
 					bounding_box.x = int((int(d[0])+int(d[2])+int(d[4])+int(d[6]))/4)
 					bounding_box.y = int((int(d[1])+int(d[3])+int(d[5])+int(d[7]))/4)
+					bounding_box.cl = int(d[-1])
 					bounding_boxes.bounding_boxes.append(bounding_box)
 					
 
