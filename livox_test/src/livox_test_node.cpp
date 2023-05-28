@@ -378,10 +378,13 @@ class mapMaintainer{
             for(int t=0;t<=num_boxes;t++){
                 int x=bounding_boxes->bounding_boxes[t].x;
                 int y=bounding_boxes->bounding_boxes[t].y;
+                int cl=bounding_boxes->bounding_boxes[t].cl;
                 float a=image.at<Vec3b>(x,y)[0];
                 float b=image.at<Vec3b>(x,y)[1];
                 float c=image.at<Vec3b>(x,y)[2];
-                std::cout << "车辆中心点坐标:" << "(" << a<<","<<b<<","<<c<<")"<<std::endl;
+                std::cout << "车辆中心点坐标:   " << "(" << a<<","<<b<<","<<c<<")"<<std::endl;
+                std::cout<<"车辆信息：  "<<cl<<std::endl;
+                
             }
             std::cout<<"06"<<std::endl;
         }
