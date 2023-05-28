@@ -2,18 +2,22 @@
 #include "sensor_msgs/PointCloud2.h"
 #include "sensor_msgs/Image.h"
 //
-#include "sensor_mags/CameraInfo.h"
+#include "sensor_msgs/CameraInfo.h"
 #include "cv_bridge/cv_bridge.h"
 #include "opencv2/opencv.hpp"
 #include "pcl_ros/transforms.h"
 #include "image_geometry/pinhole_camera_model.h"
 #include "opencv2/highgui/highgui.hpp"
+#include "darknet_ros_msgs/BoundingBox.h"
+#include "darknet_ros_msgs/BoundingBoxes.h"
 //
 #include "vector"
 #include "queue"
 #include "math.h"
 #include "algorithm"
 
+#include "detection_msgs/BoundingBox.h"
+#include "detection_msgs/BoundingBoxes.h"
 #include "pcl/point_cloud.h"
 #include "pcl/point_types.h"
 #include "pcl/filters/voxel_grid.h"
@@ -22,6 +26,8 @@
 
 #include "livox_ros_driver/CustomMsg.h"
 #include "livox_ros_driver/CustomPoint.h"
+
+using namespace cv;
 
 #define layers_per_map  5
 #define queue_limit_    10
@@ -52,7 +58,7 @@ float rad2dgree(float r){
 
 class mapMaintainer{
     public:
-        mapMaintainer(std::string topic_name) : nh_("/"), cloud_topic_name_(topic_name){
+        mapMaintainer(std::string topic_name) : nh_("/"), cloud_topic_name_(topic_name),image(2048,1536,CV_64FC3){
             init_ros();
             init_params();
             init_pcl();
@@ -104,6 +110,13 @@ class mapMaintainer{
             }
             boundry_atan_y_z[layers_per_map - 1] = M_PI * 2.0f / cloud_num_per_map[layers_per_map - 1];
             
+            Ts <<
+                0.0125908,-0.999895,-0.00713773,0,
+                0.0119283,0.00728786,-0.999902,0.05,
+                0.99985,0.0125045,0.0120187,0.03,
+                0,0,0,1   
+            ;
+            image=Mat::zeros(Size(2048,1536),CV_64FC3);
         }
 
         void time_count(std::string filename, void (*func)(void)){
@@ -152,7 +165,7 @@ class mapMaintainer{
         }
 
         void cloudLivxoCB(sensor_msgs::PointCloud2::ConstPtr msg_cloud){
-            // ROS_INFO("*********************************");
+            ROS_INFO("*********************************");
             // ROS_INFO("time 1 : %lf", ros::Time::now().toSec());
             pcl::PointCloud<pcl::PointXYZI>::Ptr pcl_cloud(new pcl::PointCloud<pcl::PointXYZI>);
             pcl::fromROSMsg(*msg_cloud, *pcl_cloud);
@@ -190,7 +203,7 @@ class mapMaintainer{
                 size_t ind = subMapInd(p.x, p.y, p.z);
                 // ROS_INFO("time 3 : %lf, ind : %ld", ros::Time::now().toSec(), ind);
                 // std::cout << p.intensity << std::endl;
-                if((p.intensity < intensity_thresh_1) || 8p.intensity > intensity_thresh_2)
+                if((p.intensity < intensity_thresh_1) || p.intensity > intensity_thresh_2)
                 this->map_list_[ind]->push_back(p);
                 // ROS_INFO("time 4 : %lf", ros::Time::now().toSec());
             }
@@ -230,7 +243,7 @@ class mapMaintainer{
             }
         }
 
-        //发布相机参数的话题，distortion_coefficients是D，camera_matrix是K，projection_matrix是P，rectification_matrix是R
+        //发布相机参数的话题，distortion_coefficients是D，camera_matrix是K，projection_matrix是P，rectification_matrix是R，相机雷达联合标定结果：T
         sensor_msgs::CameraInfo getCameraInfo(void){        
         sensor_msgs::CameraInfo cam;
 
@@ -248,8 +261,10 @@ class mapMaintainer{
         };
         boost::array<double, 9> r = {1, 0, 0, 0, 1, 0, 0, 0, 1};
 
-        cam.height = 480;
-        cam.width = 640;
+
+
+        cam.height = 2048;
+        cam.width = 1536;
         cam.distortion_model = "plumb_bob";
         cam.D = D;
         cam.K = K;
@@ -300,6 +315,8 @@ class mapMaintainer{
         void pinholecamera(const sensor_msgs::CameraInfoConstPtr& camera_info_msg){
             //image_geometry::PinholeCameraModel cam_model;
             cam_model.fromCameraInfo(camera_info_msg);
+            // std::cout<<cam_model.fullProjectionMatrix()<<std::endl;
+            // std::cout<<cam_model.fullIntrinsicMatrix()<<std::endl;
         }
 
         //点云点投影到图像上
@@ -309,49 +326,66 @@ class mapMaintainer{
         //}
         //绘制深度图的函数,维护一张新的
         void drawDepthImg(pcl::PointCloud<pcl::PointXYZI>::Ptr in_cloud){
-            image=Mat::zeros(Size(2048,1536),CV_8UC3);
-             for (const auto& point : pcl_cloud->points)//cloud->points ?
+            std::vector<int> ab;
+            pcl::PointCloud<pcl::PointXYZI>::Ptr pcl2camera_cloud(new pcl::PointCloud<pcl::PointXYZI>);
+            pcl::transformPointCloud<pcl::PointXYZI>(*in_cloud,*pcl2camera_cloud,Ts);
+            
+
+            std::cout<<"pcl2camera_cloud size"<<pcl2camera_cloud->size()<<std::endl;
+            for (const auto& pointc : pcl2camera_cloud->points)//cloud->points ?
             {
-              cv::Point2d pixel0;
-              cam_model.project3dToPixel(cv::Point3d(point.x, point.y, point.z), pixel0);
+              //点云坐标转换为相机参考系，用联合标定结果矩阵T
+              //double pr[4][1] = {pointc.x, pointc.y, pointc.z,1};  //point in radar 
+              //double pc[4][1] ;                               //point in camera
+              //pc=Ts*pr;
+              //
+              //double pc_x=pc[0][0];
+              //double pc_y=pc[1][0];
+              //double pc_z=pc[2][0];
+              cv::Point2d pixel0=cam_model.project3dToPixel(cv::Point3d(pointc.x, pointc.y, pointc.z));
+              //std::cout<<"point.x"<<point.x<<std::endl;
+              //std::cout<<"point.y"<<point.y<<std::endl;
+              //std::cout<<"point.z"<<point.z<<std::endl;
               //cv::circle(image, pixel0, 2, cv::Scalar(0, 0, 255), -1);
               //计算每个点对应的深度值
-              Eigen::Vector3f point_vector=point.getVector3fMap();
-              float depth=point_vector.norm();
-              if(0<=pixel0.x<=2048||0<=pixel0.y<=1536)
-              {
-              image.at<float>(pixel0.x,pixel0.y).[0]=point.x;
-              image.at<float>(pixel0.x,pixel0.y).[1]=point.y;
-              image.at<float>(pixel0.x,pixel0.y).[2]=point.z;
+              //Eigen::Vector3f point_vector=point.getVector3fMap();
+              //float depth=point_vector.norm();
+              image.at<Vec3d>(int(2044),int(193))[0];
+              if(0<=pixel0.x && pixel0.x < 2048 && 0 <= pixel0.y && pixel0.y <1536)
+              {  
+              std::cout<<"pixel0.x  "<<pixel0.x<<std::endl;
+              std::cout<<"pixel0.y  "<<pixel0.y<<std::endl;
+              image.at<Vec3d>(int(pixel0.y),int(pixel0.x))[0]=pointc.x;
+              std::cout<<"pointc.x  "<<pointc.x<<std::endl;
+              image.at<Vec3d>(pixel0.y,pixel0.x)[1]=pointc.y;
+              image.at<Vec3d>(pixel0.y,pixel0.x)[2]=pointc.z;
               //cout<<"Depth:  "<< depth <<endl;
               }
             }        
             // 展示转换结果
             cv::imshow("Projected Point Cloud", image);
+            cv::waitKey(1);
+            std::cout<<"04"<<std::endl;
         }
         //传入深度图上点的坐标，返回点云图里的三维坐标
-        void returnxyz(const cv::Point2d& pixel){
-            // 根据传入像素点的坐标，返回点云点的三维坐标
-            for (x=0;x<=image.rows;x++)
-            {
-                for(y=0;y<=image.rows;y++)
-                {
-                    if (x==pixel.x&&y==pixel.y)
-                    {
-
-                    // Calculate 3D coordinates of point in point cloud
-                    //Eigen::Vector3f point_vector = point.getVector3fMap();
-                    //std::cout << "Point cloud coordinate: (" << point_vector(0) << ", " << point_vector(1) << ", " << point_vector(2) << ")" << std::endl;
-                    float a=image.at<float>(pixel0.x,pixel0.y).[0]=point.x;
-                    float b=image.at<float>(pixel0.x,pixel0.y).[1]=point.y;
-                    float c=image.at<float>(pixel0.x,pixel0.y).[2]=point.z;
-                    return;
-                    }
-                }
+        void returnxyz(detection_msgs::BoundingBoxes::Ptr const bounding_boxes){//BoundingBox[] bounding_boxes
+        // 根据传入像素点的坐标，返回点云点的三维坐标
+        // Calculate 3D coordinates of point in point cloud
+        //Eigen::Vector3f point_vector = point.getVector3fMap();
+        //std::cout << "Point cloud coordinate: (" << point_vector(0) << ", " << point_vector(1) << ", " << point_vector(2) << ")" << std::endl;
+            std::cout<<"05"<<std::endl;
+            int num_boxes=sizeof(bounding_boxes)/2;
+            for(int t=0;t<=num_boxes;t++){
+                int x=bounding_boxes->bounding_boxes[t].x;
+                int y=bounding_boxes->bounding_boxes[t].y;
+                float a=image.at<Vec3b>(x,y)[0];
+                float b=image.at<Vec3b>(x,y)[1];
+                float c=image.at<Vec3b>(x,y)[2];
+                std::cout << "车辆中心点坐标:" << "(" << a<<","<<b<<","<<c<<")"<<std::endl;
             }
-              std::cout << "No point in point cloud corresponds to pixel coordinate (" << pixel.x << ", " << pixel.y << ")" << std::endl;
-              cv::waitKey(1);
+            std::cout<<"06"<<std::endl;
         }
+        
 
         void turn2imagepoint(pcl::PointCloud<pcl::PointXYZI>::Ptr &in_cloud) {
             pcl::PointCloud<pcl::PointXYZI> cl;
@@ -443,7 +477,8 @@ class mapMaintainer{
 
         image_geometry::PinholeCameraModel cam_model;
         cv::Mat image;
-        
+        //double Ts[4][4]
+        Eigen::Matrix4f Ts;
 
         std::vector<KD_TREE<pcl::PointXYZI>::PointVector> sub_map_buffs_;
         std::vector<KD_TREE<pcl::PointXYZI>::Ptr> map_list_kd_;
@@ -473,9 +508,11 @@ int main(int argc, char **argv){
     //ros::Subscriber image_sub = nh.subscribe<sensor_msgs::Image>("image_topic", 1, boost::bind(cloudCallback, cloud_msg, _1, camera_info_msg));
     //ros::Subscriber camera_info_sub = nh.subscribe<sensor_msgs::CameraInfo>("camera_info_dyn", 1, boost::bind(cloudCallback, cloud_msg, image_msg, _1));
     //订阅处理好的相机参数话题，并调用针孔相机模型函数
-    ros::Subscriber camerainfo_sub = nh_.subscribe("/camera/camera_info", 5, &mapMaintainer::pinholecamera, &m);
+    ros::Subscriber camerainfo_sub = n.subscribe("/camera/camera_info", 5, &mapMaintainer::pinholecamera, &m);
     //订阅视觉识别结果话题，同时调用返回三维坐标函数
-    ros::Subscriber pixel_sub = nh_.subscribe(pixel_topic_name_, 5, &mapMaintainer::returnxyz, &m);
+    //ros::NodeHandle nh("~");  
+    //nh.getParam("~output_topic"); 
+    ros::Subscriber pixel_sub = n.subscribe("output_topic", 5, &mapMaintainer::returnxyz, &m);
 
 
 

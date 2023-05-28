@@ -1,6 +1,8 @@
 cmake_minimum_required(VERSION 3.0.2)
 project(livox_test)
 
+set(_include_dirs "include;/usr/include;/usr/include/opencv4")
+
 ## Compile as C++11, supported in ROS Kinetic and newer
 # add_compile_options(-std=c++11)
 
@@ -12,10 +14,15 @@ find_package(catkin REQUIRED COMPONENTS
   rospy
   std_msgs
   sensor_msgs
+  cv_bridge
   message_generation
   livox_ros_driver
   dynamic_reconfigure
-
+  darknet_ros_msgs
+  geometry_msgs
+  image_transport
+  detection_msgs
+  image_geometry
 )
 
 find_package(
@@ -23,6 +30,10 @@ find_package(
   REQUIRED
 )
 
+find_package(
+  OpenCV
+  REQUIRED
+)
 ## System dependencies are found with CMake's conventions
 # find_package(Boost REQUIRED COMPONENTS system)
 
@@ -132,6 +143,7 @@ include_directories(
   include
   ${catkin_INCLUDE_DIRS}
   ${PCL_INCLUDE_DIRS}
+  ${OpenCV_INCLUDE_DIRS}
 )
 
 ## Declare a C++ library
@@ -153,6 +165,7 @@ add_dependencies(${PROJECT_NAME}_node ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catk
 target_link_libraries(
   ${PROJECT_NAME}_node
   ${catkin_LIBRARIES}
+  ${OpenCV_LIBRARIES}
 )
 
 add_executable(livox_node src/livox.cpp)
@@ -160,6 +173,7 @@ target_link_libraries(
   livox_node
   ${catkin_LIBRARIES}
   ${PCL_LIBRARIES}
+  ${OpenCV_LIBRARIES}
   liblivox_sdk_static.a
 )
 
@@ -167,6 +181,7 @@ add_executable(dynamic_node src/dyna_node.cpp)
 add_dependencies(dynamic_node ${PROJECT_NAME}_gencfg ${catkin_EXPORTED_TARGETS})
 target_link_libraries(
   dynamic_node
+  ${OpenCV_LIBRARIES}
   ${catkin_LIBRARIES}
 )
 ## Rename C++ executable without prefix

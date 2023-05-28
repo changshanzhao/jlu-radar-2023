@@ -10,6 +10,7 @@ project(detection_msgs)
 find_package(catkin REQUIRED COMPONENTS
   std_msgs
   message_generation
+  roscpp
 )
 
 ## System dependencies are found with CMake's conventions
@@ -70,6 +71,7 @@ add_message_files(
 generate_messages(
   DEPENDENCIES
   std_msgs 
+  roscpp
 )
 
 ################################################

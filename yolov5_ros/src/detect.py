@@ -75,21 +75,21 @@ class Yolov5Detector:
         self.model.warmup()  # warmup        
         
         # Initialize subscriber to Image/CompressedImage topic
-        input_image_type, input_image_topic, _ = get_topic_type(rospy.get_param("~input_image_topic"), blocking = True)
+        input_image_type, input_image_topic, _ = get_topic_type("/Gxcam_node/cam_image", blocking = True)
         self.compressed_input = input_image_type == "sensor_msgs/CompressedImage"
 
         if self.compressed_input:
             self.image_sub = rospy.Subscriber(
-                input_image_topic, CompressedImage, self.callback, queue_size=1
+                "/Gxcam_node/cam_image", CompressedImage, self.callback, queue_size=1
             )
         else:
             self.image_sub = rospy.Subscriber(
-                input_image_topic, Image, self.callback, queue_size=1
+                "/Gxcam_node/cam_image", Image, self.callback, queue_size=1
             )
 
         # Initialize prediction publisher
         self.pred_pub = rospy.Publisher(
-            rospy.get_param("~output_topic"), BoundingBoxes, queue_size=10
+            "output_topic", BoundingBoxes, queue_size=10
         )
         # Initialize image publisher
         self.publish_image = rospy.get_param("~publish_image")
@@ -175,7 +175,7 @@ class Yolov5Detector:
                     s += f"{n} {self.names[int(c)]}{'s' * (n > 1)}, "  # add to string
 
                 # 这块儿应该就是新添功能了
-				bounding_boxes = BoundingBoxes()
+                bounding_boxes = BoundingBoxes()
                 for d in det:
                     pt0 = (int(d[0]), int(d[1]))
                     pt1 = (int(d[2]), int(d[3]))
@@ -199,11 +199,12 @@ class Yolov5Detector:
                     cv2.putText(im0, f"{torch.sigmoid(d[8]).item():.2f}", pt3, 1, 1, (0, 255, 0))
                     cv2.putText(im0, self.names[int(d[-1])], (pt1[0],pt1[1]+15), 1, 1, (0, 255, 0))
                     cv2.putText(im0, f"{torch.sigmoid(d[8]).item():.2f}", pt2, 1, 1, (0, 255, 0))
-					bounding_box = BoundingBox()
-					bounding_box.x = int((int(d[0])+int(d[2])+int(d[4])+int(d[6]))/4)
-					bounding_box.y = int((int(d[1])+int(d[3])+int(d[5])+int(d[7]))/4)
-					bounding_box.cl = int(d[-1])
-					bounding_boxes.bounding_boxes.append(bounding_box)
+
+                    bounding_box = BoundingBox()
+                    bounding_box.x = int((int(d[0])+int(d[2])+int(d[4])+int(d[6]))/4)
+                    bounding_box.y = int((int(d[1])+int(d[3])+int(d[5])+int(d[7]))/4)
+                    bounding_box.cl = int(d[-1])
+                    bounding_boxes.bounding_boxes.append(bounding_box)
 					
 
 
@@ -244,7 +245,7 @@ class Yolov5Detector:
             # Stream results
         im0 = annotator.result()
 
-        # Publish prediction
+        # Publish prediction,这里发送中心坐标信息
         self.pred_pub.publish(bounding_boxes)
 
         # Publish & visualize images
