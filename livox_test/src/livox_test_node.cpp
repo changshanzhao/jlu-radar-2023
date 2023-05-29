@@ -372,7 +372,7 @@ class mapMaintainer{
                 float c=image.at<Vec3b>(x,y)[2];
                 std::cout<<"车辆信息：  "<<cl<<std::endl;
                 std::cout << "车辆中心点坐标:   " << "(" << a<<","<<b<<","<<c<<")"<<std::endl;
-                
+                std::cout<<std::endl;                
 
             }
             std::cout<<"06"<<std::endl;
