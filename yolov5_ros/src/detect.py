@@ -27,8 +27,7 @@ from models.common import DetectMultiBackend
 from utils.general import (
     check_img_size,
     check_requirements,
-    non_max_suppression,
-    scale_coords
+    non_max_suppression
 )
 from utils.plots import Annotator, colors
 from utils.torch_utils import select_device
