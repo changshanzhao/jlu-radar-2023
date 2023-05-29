@@ -10,7 +10,7 @@ from pathlib import Path
 import os
 import sys
 from rostopic import get_topic_type
-
+from PIL import ImageFont
 from sensor_msgs.msg import Image, CompressedImage
 from detection_msgs.msg import BoundingBox, BoundingBoxes
 
@@ -33,7 +33,24 @@ from utils.general import (
 from utils.plots import Annotator, colors
 from utils.torch_utils import select_device
 from utils.augmentations import letterbox
+"""
+def check_font(font='Arial.ttf', size=10):
+    # Return a PIL TrueType Font, downloading to CONFIG_DIR if necessary
+    font = Path(font)
+    font = font if font.exists() else (CONFIG_DIR / font.name)
+    try:
+        return ImageFont.truetype(str(font) if font.exists() else font.name, size)
+    except Exception as e:  # download if missing
+        url = "https://ultralytics.com/assets/" + font.name
+        print(f'Downloading {url} to {font}...')
+        torch.hub.download_url_to_file(url, str(font), progress=False)
+        return ImageFont.truetype(str(font), size)
 
+RANK = int(os.getenv('RANK', -1))
+class Annotator:
+    if RANK in (-1, 0):
+        check_font()  # download TTF if necessary
+"""
 def scale_coords(img1_shape, coords, img0_shape, ratio_pad=None):
     # Rescale coords (xyxy) from img1_shape to img0_shape
     if ratio_pad is None:  # calculate from img0_shape
@@ -48,11 +65,6 @@ def scale_coords(img1_shape, coords, img0_shape, ratio_pad=None):
     coords[:, :8] /= gain
     # clip_coords(coords, img0_shape)
     return coords
-RANK = int(os.getenv('RANK', -1))
-class Annotator:
-    if RANK in (-1, 0):
-        check_font()  # download TTF if necessary
-
 @torch.no_grad()
 class Yolov5Detector:
     def __init__(self):
@@ -182,7 +194,7 @@ class Yolov5Detector:
             s += '%gx%g ' % im.shape[2:]  # print string
             gn = torch.tensor(im0.shape)[[1, 0, 1, 0]]  # normalization gain whwh
             # imc = im0.copy() if save_crop else im0  # for save_crop
-            annotator = Annotator(im0, line_width=self.line_thickness, example=str(self.names))
+            # annotator = Annotator(im0, line_width=self.line_thickness, example=str(self.names))
             if len(det):
                 # Rescale boxes from img_size to im0 size
                 det[:, :8] = scale_coords(im.shape[2:], det[:, :8], im0.shape).round()
@@ -261,7 +273,7 @@ class Yolov5Detector:
                 ### POPULATE THE DETECTION MESSAGE HERE
 
             # Stream results
-        im0 = annotator.result()
+        # im0 = annotator.result()
 
         # Publish prediction,这里发送中心坐标信息
         self.pred_pub.publish(bounding_boxes)
