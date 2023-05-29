@@ -34,6 +34,24 @@ from utils.plots import Annotator, colors
 from utils.torch_utils import select_device
 from utils.augmentations import letterbox
 
+def scale_coords(img1_shape, coords, img0_shape, ratio_pad=None):
+    # Rescale coords (xyxy) from img1_shape to img0_shape
+    if ratio_pad is None:  # calculate from img0_shape
+        gain = min(img1_shape[0] / img0_shape[0], img1_shape[1] / img0_shape[1])  # gain  = old / new
+        pad = (img1_shape[1] - img0_shape[1] * gain) / 2, (img1_shape[0] - img0_shape[0] * gain) / 2  # wh padding
+    else:
+        gain = ratio_pad[0][0]
+        pad = ratio_pad[1]
+
+    coords[:, [0, 2, 4, 6]] -= pad[0]  # x padding
+    coords[:, [1, 3, 5, 7]] -= pad[1]  # y padding
+    coords[:, :8] /= gain
+    # clip_coords(coords, img0_shape)
+    return coords
+RANK = int(os.getenv('RANK', -1))
+class Annotator:
+    if RANK in (-1, 0):
+        check_font()  # download TTF if necessary
 
 @torch.no_grad()
 class Yolov5Detector:
