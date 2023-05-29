@@ -334,29 +334,17 @@ class mapMaintainer{
             std::cout<<"pcl2camera_cloud size"<<pcl2camera_cloud->size()<<std::endl;
             for (const auto& pointc : pcl2camera_cloud->points)//cloud->points ?
             {
-              //点云坐标转换为相机参考系，用联合标定结果矩阵T
-              //double pr[4][1] = {pointc.x, pointc.y, pointc.z,1};  //point in radar 
-              //double pc[4][1] ;                               //point in camera
-              //pc=Ts*pr;
-              //
-              //double pc_x=pc[0][0];
-              //double pc_y=pc[1][0];
-              //double pc_z=pc[2][0];
               cv::Point2d pixel0=cam_model.project3dToPixel(cv::Point3d(pointc.x, pointc.y, pointc.z));
-              //std::cout<<"point.x"<<point.x<<std::endl;
-              //std::cout<<"point.y"<<point.y<<std::endl;
-              //std::cout<<"point.z"<<point.z<<std::endl;
-              //cv::circle(image, pixel0, 2, cv::Scalar(0, 0, 255), -1);
               //计算每个点对应的深度值
               //Eigen::Vector3f point_vector=point.getVector3fMap();
               //float depth=point_vector.norm();
               image.at<Vec3d>(int(2044),int(193))[0];
               if(0<=pixel0.x && pixel0.x < 2048 && 0 <= pixel0.y && pixel0.y <1536)
               {  
-              std::cout<<"pixel0.x  "<<pixel0.x<<std::endl;
-              std::cout<<"pixel0.y  "<<pixel0.y<<std::endl;
+              //std::cout<<"pixel0.x  "<<pixel0.x<<std::endl;
+              //std::cout<<"pixel0.y  "<<pixel0.y<<std::endl;
               image.at<Vec3d>(int(pixel0.y),int(pixel0.x))[0]=pointc.x;
-              std::cout<<"pointc.x  "<<pointc.x<<std::endl;
+              //std::cout<<"pointc.x  "<<pointc.x<<std::endl;
               image.at<Vec3d>(pixel0.y,pixel0.x)[1]=pointc.y;
               image.at<Vec3d>(pixel0.y,pixel0.x)[2]=pointc.z;
               //cout<<"Depth:  "<< depth <<endl;
@@ -365,7 +353,7 @@ class mapMaintainer{
             // 展示转换结果
             cv::imshow("Projected Point Cloud", image);
             cv::waitKey(1);
-            std::cout<<"04"<<std::endl;
+            //std::cout<<"04"<<std::endl;
         }
         //传入深度图上点的坐标，返回点云图里的三维坐标
         void returnxyz(detection_msgs::BoundingBoxes::Ptr const bounding_boxes){//BoundingBox[] bounding_boxes
@@ -382,9 +370,10 @@ class mapMaintainer{
                 float a=image.at<Vec3b>(x,y)[0];
                 float b=image.at<Vec3b>(x,y)[1];
                 float c=image.at<Vec3b>(x,y)[2];
-                std::cout << "车辆中心点坐标:   " << "(" << a<<","<<b<<","<<c<<")"<<std::endl;
                 std::cout<<"车辆信息：  "<<cl<<std::endl;
+                std::cout << "车辆中心点坐标:   " << "(" << a<<","<<b<<","<<c<<")"<<std::endl;
                 
+
             }
             std::cout<<"06"<<std::endl;
         }
