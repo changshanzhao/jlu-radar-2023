@@ -35,7 +35,6 @@ from utils.plots import Annotator, colors
 from utils.torch_utils import select_device
 from utils.augmentations import letterbox
 """
-from models.common import DetectMultiBackend
 from models.experimental import attempt_load
 from utils.datasets import LoadImages, LoadStreams
 from utils.general import apply_classifier, check_img_size, check_imshow, check_requirements, check_suffix, colorstr, \
@@ -56,35 +55,33 @@ class Yolov5Detector:
         self.classes = rospy.get_param("~classes", None)
         self.line_thickness = rospy.get_param("~line_thickness")
         self.view_image = rospy.get_param("~view_image")
+		self.half = rospy.get_param("~half", False)
         # Initialize weights 
         weights = rospy.get_param("~weights")
         # Initialize model
         self.device = select_device(str(rospy.get_param("~device","")))
-        self.model = DetectMultiBackend(weights, device=self.device, dnn=rospy.get_param("~dnn"), data=rospy.get_param("~data"))
-        self.stride, self.names, self.pt, self.jit, self.onnx, self.engine = (
-            self.model.stride,
-            self.model.names,
-            self.model.pt,
-            self.model.jit,
-            self.model.onnx,
-            self.model.engine,
-        )
+		self.half &= self.device.type != 'cpu'
+		w = str(weights[0] if isinstance(weights, list) else weights)
+		classify, suffix, suffixes = False, Path(w).suffix.lower(), ['.pt', '.onnx', '.tflite', '.pb', '']
+		check_suffix(w, suffixes)  # check weights have acceptable suffix
+		self.pt, self.onnx, self.stflite, self.pb, self.saved_model = (suffix == x for x in suffixes)  # backend booleans
+		self.stride, self.names = 64, [f'class{i}' for i in range(1000)]  # assign defaults
+		if self.pt:
+			self.model = torch.jit.load(w) if 'torchscript' in w else attempt_load(weights, map_location=self.device)
+			self.stride = int(self.model.stride.max())  # model stride
+			self.names = self.model.module.names if hasattr(self.model, 'module') else self.model.names  # get class names
+			if self.half:
+				self.model.half()  # to FP16
+			if classify:  # second-stage classifier
+				modelc = load_classifier(name='resnet50', n=2)  # initialize
+				modelc.load_state_dict(torch.load('resnet50.pt', map_location=self.device)['model']).to(self.device).eval()
 
         # Setting inference size
         self.img_size = [rospy.get_param("~inference_size_w", 640), rospy.get_param("~inference_size_h",480)]
         self.img_size = check_img_size(self.img_size, s=self.stride)
-
-        # Half
-        self.half = rospy.get_param("~half", False)
-        self.half &= (
-            self.pt or self.jit or self.onnx or self.engine
-        ) and self.device.type != "cpu"  # FP16 supported on limited backends with CUDA
-        if self.pt or self.jit:
-            self.model.model.half() if self.half else self.model.model.float()
-        bs = 1  # batch_size
-        cudnn.benchmark = True  # set True to speed up constant image size inference
-        self.model.warmup()  # warmup        
-        
+		if self.pt and self.device.type != 'cpu':
+			self.model(torch.zeros(1, 3, *self.img_size).to(self.device).type_as(next(self.model.parameters())))  # run once
+		
         # Initialize subscriber to Image/CompressedImage topic
         input_image_type, input_image_topic, _ = get_topic_type("/Gxcam_node/cam_image", blocking = True)
         self.compressed_input = input_image_type == "sensor_msgs/CompressedImage"
