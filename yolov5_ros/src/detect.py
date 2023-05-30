@@ -23,47 +23,29 @@ if str(ROOT) not in sys.path:
 ROOT = Path(os.path.relpath(ROOT, Path.cwd()))  # relative path
 
 # import from yolov5 submodules
+"""
 from models.common import DetectMultiBackend
 from utils.general import (
     check_img_size,
     check_requirements,
-    non_max_suppression
+    non_max_suppression,
+	scale_coords
 )
 from utils.plots import Annotator, colors
 from utils.torch_utils import select_device
 from utils.augmentations import letterbox
 """
-def check_font(font='Arial.ttf', size=10):
-    # Return a PIL TrueType Font, downloading to CONFIG_DIR if necessary
-    font = Path(font)
-    font = font if font.exists() else (CONFIG_DIR / font.name)
-    try:
-        return ImageFont.truetype(str(font) if font.exists() else font.name, size)
-    except Exception as e:  # download if missing
-        url = "https://ultralytics.com/assets/" + font.name
-        print(f'Downloading {url} to {font}...')
-        torch.hub.download_url_to_file(url, str(font), progress=False)
-        return ImageFont.truetype(str(font), size)
+from models.common import DetectMultiBackend
+from models.experimental import attempt_load
+from utils.datasets import LoadImages, LoadStreams
+from utils.general import apply_classifier, check_img_size, check_imshow, check_requirements, check_suffix, colorstr, \
+    increment_path, non_max_suppression, print_args, save_one_box, scale_coords, set_logging, \
+    strip_optimizer, xyxy2xywh
+from utils.plots import Annotator, colors
+from utils.torch_utils import load_classifier, select_device, time_sync
+from utils.augmentations import letterbox
 
-RANK = int(os.getenv('RANK', -1))
-class Annotator:
-    if RANK in (-1, 0):
-        check_font()  # download TTF if necessary
-"""
-def scale_coords(img1_shape, coords, img0_shape, ratio_pad=None):
-    # Rescale coords (xyxy) from img1_shape to img0_shape
-    if ratio_pad is None:  # calculate from img0_shape
-        gain = min(img1_shape[0] / img0_shape[0], img1_shape[1] / img0_shape[1])  # gain  = old / new
-        pad = (img1_shape[1] - img0_shape[1] * gain) / 2, (img1_shape[0] - img0_shape[0] * gain) / 2  # wh padding
-    else:
-        gain = ratio_pad[0][0]
-        pad = ratio_pad[1]
 
-    coords[:, [0, 2, 4, 6]] -= pad[0]  # x padding
-    coords[:, [1, 3, 5, 7]] -= pad[1]  # y padding
-    coords[:, :8] /= gain
-    # clip_coords(coords, img0_shape)
-    return coords
 @torch.no_grad()
 class Yolov5Detector:
     def __init__(self):
@@ -150,6 +132,7 @@ class Yolov5Detector:
         im /= 255
         if len(im.shape) == 3:
             im = im[None]
+		bounding_boxes = BoundingBoxes()
         pred_raw = self.model(im)[0].detach().cpu()
         pred = []
         for p in pred_raw:
@@ -193,7 +176,7 @@ class Yolov5Detector:
             s += '%gx%g ' % im.shape[2:]  # print string
             gn = torch.tensor(im0.shape)[[1, 0, 1, 0]]  # normalization gain whwh
             # imc = im0.copy() if save_crop else im0  # for save_crop
-            # annotator = Annotator(im0, line_width=self.line_thickness, example=str(self.names))
+            annotator = Annotator(im0, line_width=self.line_thickness, example=str(self.names))
             if len(det):
                 # Rescale boxes from img_size to im0 size
                 det[:, :8] = scale_coords(im.shape[2:], det[:, :8], im0.shape).round()
@@ -204,7 +187,7 @@ class Yolov5Detector:
                     s += f"{n} {self.names[int(c)]}{'s' * (n > 1)}, "  # add to string
 
                 # 这块儿应该就是新添功能了
-                bounding_boxes = BoundingBoxes()
+                
                 for d in det:
                     pt0 = (int(d[0]), int(d[1]))
                     pt1 = (int(d[2]), int(d[3]))
@@ -234,6 +217,7 @@ class Yolov5Detector:
                     bounding_box.y = int((int(d[1])+int(d[3])+int(d[5])+int(d[7]))/4)
                     bounding_box.cl = int(d[-1])
                     bounding_boxes.bounding_boxes.append(bounding_box)
+			im0 = annotator.result()
 					
 
 

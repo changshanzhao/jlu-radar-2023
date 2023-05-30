@@ -5,9 +5,9 @@ Loss functions
 
 import torch
 import torch.nn as nn
-
+import numpy as np
 from utils.metrics import bbox_iou
-from utils.torch_utils import de_parallel
+from utils.torch_utils import is_parallel
 
 
 def smooth_BCE(eps=0.1):  # https://github.com/ultralytics/yolov3/issues/238#issuecomment-598028441
@@ -15,10 +15,40 @@ def smooth_BCE(eps=0.1):  # https://github.com/ultralytics/yolov3/issues/238#iss
     return 1.0 - 0.5 * eps, 0.5 * eps
 
 
+class WingLoss(nn.Module):
+    def __init__(self, w=10, e=2):
+        super(WingLoss, self).__init__()
+        # https://arxiv.org/pdf/1711.06753v4.pdf   Figure 5
+        self.w = w
+        self.e = e
+        self.C = self.w - self.w * np.log(1 + self.w / self.e)
+
+    def forward(self, x, t, sigma=1):
+        weight = torch.ones_like(t)
+        weight[torch.where(t == -1)] = 0
+        diff = weight * (x - t)
+        abs_diff = diff.abs()
+        flag = (abs_diff.data < self.w).float()
+        y = flag * self.w * torch.log(1 + abs_diff / self.e) + (1 - flag) * (abs_diff - self.C)
+        return y.sum()
+
+
+class LandmarksLoss(nn.Module):
+    # BCEwithLogitLoss() with reduced missing label effects.
+    def __init__(self, alpha=1.0):
+        super(LandmarksLoss, self).__init__()
+        self.loss_fcn = WingLoss()  # nn.SmoothL1Loss(reduction='sum')
+        self.alpha = alpha
+
+    def forward(self, pred, truel, mask):
+        loss = self.loss_fcn(pred * mask, truel * mask)
+        return loss / (torch.sum(mask) + 10e-14)
+
+
 class BCEBlurWithLogitsLoss(nn.Module):
     # BCEwithLogitLoss() with reduced missing label effects.
     def __init__(self, alpha=0.05):
-        super().__init__()
+        super(BCEBlurWithLogitsLoss, self).__init__()
         self.loss_fcn = nn.BCEWithLogitsLoss(reduction='none')  # must be nn.BCEWithLogitsLoss()
         self.alpha = alpha
 
@@ -35,7 +65,7 @@ class BCEBlurWithLogitsLoss(nn.Module):
 class FocalLoss(nn.Module):
     # Wraps focal loss around existing loss_fcn(), i.e. criteria = FocalLoss(nn.BCEWithLogitsLoss(), gamma=1.5)
     def __init__(self, loss_fcn, gamma=1.5, alpha=0.25):
-        super().__init__()
+        super(FocalLoss, self).__init__()
         self.loss_fcn = loss_fcn  # must be nn.BCEWithLogitsLoss()
         self.gamma = gamma
         self.alpha = alpha
@@ -65,7 +95,7 @@ class FocalLoss(nn.Module):
 class QFocalLoss(nn.Module):
     # Wraps Quality focal loss around existing loss_fcn(), i.e. criteria = FocalLoss(nn.BCEWithLogitsLoss(), gamma=1.5)
     def __init__(self, loss_fcn, gamma=1.5, alpha=0.25):
-        super().__init__()
+        super(QFocalLoss, self).__init__()
         self.loss_fcn = loss_fcn  # must be nn.BCEWithLogitsLoss()
         self.gamma = gamma
         self.alpha = alpha
@@ -89,15 +119,15 @@ class QFocalLoss(nn.Module):
 
 
 class ComputeLoss:
-    sort_obj_iou = False
-
     # Compute losses
     def __init__(self, model, autobalance=False):
+        self.sort_obj_iou = False
         device = next(model.parameters()).device  # get model device
         h = model.hyp  # hyperparameters
 
         # Define criteria
         BCEcls = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([h['cls_pw']], device=device))
+        BCEcls_color = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([h['cls_pw']], device=device))
         BCEobj = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([h['obj_pw']], device=device))
 
         # Class label smoothing https://arxiv.org/pdf/1902.04103.pdf eqn 3
@@ -108,59 +138,79 @@ class ComputeLoss:
         if g > 0:
             BCEcls, BCEobj = FocalLoss(BCEcls, g), FocalLoss(BCEobj, g)
 
-        m = de_parallel(model).model[-1]  # Detect() module
-        self.balance = {3: [4.0, 1.0, 0.4]}.get(m.nl, [4.0, 1.0, 0.25, 0.06, 0.02])  # P3-P7
-        self.ssi = list(m.stride).index(16) if autobalance else 0  # stride 16 index
+        det = model.module.model[-1] if is_parallel(model) else model.model[-1]  # Detect() module
+        self.balance = {3: [4.0, 1.0, 0.4]}.get(det.nl, [4.0, 1.0, 0.25, 0.06, .02])  # P3-P7
+        self.ssi = list(det.stride).index(16) if autobalance else 0  # stride 16 index
         self.BCEcls, self.BCEobj, self.gr, self.hyp, self.autobalance = BCEcls, BCEobj, 1.0, h, autobalance
-        self.na = m.na  # number of anchors
-        self.nc = m.nc  # number of classes
-        self.nl = m.nl  # number of layers
-        self.anchors = m.anchors
-        self.device = device
+        self.BCEcls_color = BCEcls_color
+        self.smoothL1 = nn.SmoothL1Loss()
+        self.landmarks_loss = LandmarksLoss(1.0)
 
-    def __call__(self, p, targets):  # predictions, targets
-        lcls = torch.zeros(1, device=self.device)  # class loss
-        lbox = torch.zeros(1, device=self.device)  # box loss
-        lobj = torch.zeros(1, device=self.device)  # object loss
-        tcls, tbox, indices, anchors = self.build_targets(p, targets)  # targets
+        for k in 'na', 'nc', 'nl', 'anchors':
+            setattr(self, k, getattr(det, k))
+
+    def __call__(self, p, targets):  # predictions, targets, model
+        device = targets.device
+        lcls, lbox, lpts, lobj = torch.zeros(1, device=device), torch.zeros(1, device=device), torch.zeros(1,
+                                                                                                           device=device), torch.zeros(
+            1, device=device)
+        tcls, tbox, tpts, indices, anchors = self.build_targets(p, targets)  # targets
 
         # Losses
         for i, pi in enumerate(p):  # layer index, layer predictions
             b, a, gj, gi = indices[i]  # image, anchor, gridy, gridx
-            tobj = torch.zeros(pi.shape[:4], dtype=pi.dtype, device=self.device)  # target obj
+            tobj = torch.zeros_like(pi[..., 0], device=device)  # target obj
 
             n = b.shape[0]  # number of targets
             if n:
-                # pxy, pwh, _, pcls = pi[b, a, gj, gi].tensor_split((2, 4, 5), dim=1)  # faster, requires torch 1.8.0
-                pxy, pwh, _, pcls = pi[b, a, gj, gi].split((2, 2, 1, self.nc), 1)  # target-subset of predictions
+                ps = pi[b, a, gj, gi]  # prediction subset corresponding to targets
+
+                ppts = ps[:, :8]
+                pxmin = torch.min(ppts[:, [0, 2, 4, 6]], dim=1).values
+                pxmax = torch.max(ppts[:, [0, 2, 4, 6]], dim=1).values
+                pymin = torch.min(ppts[:, [1, 3, 5, 7]], dim=1).values
+                pymax = torch.max(ppts[:, [1, 3, 5, 7]], dim=1).values
+
+                px = torch.mean(ppts[:, [0, 2, 4, 6]], dim=1)
+                py = torch.mean(ppts[:, [1, 3, 5, 7]], dim=1)
+                pw = pxmax - pxmin
+                ph = pymax - pymin
 
                 # Regression
-                pxy = pxy.sigmoid() * 2 - 0.5
-                pwh = (pwh.sigmoid() * 2) ** 2 * anchors[i]
+                pxy = torch.stack([px, py], dim=1)
+                pwh = torch.stack([pw, ph], dim=1)
                 pbox = torch.cat((pxy, pwh), 1)  # predicted box
-                iou = bbox_iou(pbox, tbox[i], CIoU=True).squeeze()  # iou(prediction, target)
+                iou = bbox_iou(pbox.T, tbox[i], x1y1x2y2=False, CIoU=True)  # iou(prediction, target)
                 lbox += (1.0 - iou).mean()  # iou loss
 
+                # Points Regression
+                l1 = self.smoothL1(ppts, tpts[i])
+                # l1 = self.landmarks_loss(ppts, tpts[i], torch.full_like(ppts, self.cp, device=device))/10
+                lpts += l1
+
                 # Objectness
-                iou = iou.detach().clamp(0).type(tobj.dtype)
-                if self.sort_obj_iou:
-                    j = iou.argsort()
-                    b, a, gj, gi, iou = b[j], a[j], gj[j], gi[j], iou[j]
-                if self.gr < 1:
-                    iou = (1.0 - self.gr) + self.gr * iou
-                tobj[b, a, gj, gi] = iou  # iou ratio
+                tobj[b, a, gj, gi] = (1.0 - self.gr) + self.gr * iou.detach().clamp(0).type(tobj.dtype)  # iou ratio
 
                 # Classification
                 if self.nc > 1:  # cls loss (only if multiple classes)
-                    t = torch.full_like(pcls, self.cn, device=self.device)  # targets
-                    t[range(n), tcls[i]] = self.cp
-                    lcls += self.BCEcls(pcls, t)  # BCE
+                    point_num = 4
+                    color_num = 4
+                    tag_num = 9
+                    t = torch.full_like(ps[:, (point_num * 2 + 1):], self.cn, device=device)  # targets
+                    tcls_color = torch.div(tcls[i], tag_num, rounding_mode='floor')
+                    tcls_number = tcls[i] % tag_num
+                    t[range(n), tcls_color] = self.cp
+                    t[range(n), tcls_number + color_num] = self.cp
+                    lcls += (self.BCEcls_color(ps[:, (point_num * 2 + 1):(point_num * 2 + 1 + color_num)],
+                                               t[:, :color_num]) * color_num + self.BCEcls(
+                        ps[:, (point_num * 2 + 1 + color_num):],
+                        t[:, color_num:]) * tag_num) / (color_num + tag_num)  # BCE
 
                 # Append targets to text file
                 # with open('targets.txt', 'a') as file:
                 #     [file.write('%11.5g ' * 4 % tuple(x) + '\n') for x in torch.cat((txy[i], twh[i]), 1)]
 
-            obji = self.BCEobj(pi[..., 4], tobj)
+            obji = self.BCEobj(pi[..., 8], tobj)
             lobj += obji * self.balance[i]  # obj loss
             if self.autobalance:
                 self.balance[i] = self.balance[i] * 0.9999 + 0.0001 / obji.detach().item()
@@ -168,50 +218,54 @@ class ComputeLoss:
         if self.autobalance:
             self.balance = [x / self.balance[self.ssi] for x in self.balance]
         lbox *= self.hyp['box']
+        lpts *= self.hyp['pts']
         lobj *= self.hyp['obj']
         lcls *= self.hyp['cls']
         bs = tobj.shape[0]  # batch size
 
-        return (lbox + lobj + lcls) * bs, torch.cat((lbox, lobj, lcls)).detach()
+        loss = lbox + lpts + lobj + lcls
+        return loss * bs, torch.cat((lbox, lpts, lobj, lcls, loss)).detach()
 
     def build_targets(self, p, targets):
         # Build targets for compute_loss(), input targets(image,class,x,y,w,h)
         na, nt = self.na, targets.shape[0]  # number of anchors, targets
-        tcls, tbox, indices, anch = [], [], [], []
-        gain = torch.ones(7, device=self.device)  # normalized to gridspace gain
-        ai = torch.arange(na, device=self.device).float().view(na, 1).repeat(1, nt)  # same as .repeat_interleave(nt)
-        targets = torch.cat((targets.repeat(na, 1, 1), ai[..., None]), 2)  # append anchor indices
+        tcls, tbox, tpts, indices, anch = [], [], [], [], []
+        gain = torch.ones(11, device=targets.device)  # normalized to gridspace gain
+        ai = torch.arange(na, device=targets.device).float().view(na, 1).repeat(1, nt)  # same as .repeat_interleave(nt)
+        targets = torch.cat((targets.repeat(na, 1, 1), ai[:, :, None]), 2)  # append anchor indices
 
         g = 0.5  # bias
-        off = torch.tensor(
-            [
-                [0, 0],
-                [1, 0],
-                [0, 1],
-                [-1, 0],
-                [0, -1],  # j,k,l,m
-                # [1, 1], [1, -1], [-1, 1], [-1, -1],  # jk,jm,lk,lm
-            ],
-            device=self.device).float() * g  # offsets
+        off = torch.tensor([[0, 0],
+                            [1, 0], [0, 1], [-1, 0], [0, -1],  # j,k,l,m
+                            # [1, 1], [1, -1], [-1, 1], [-1, -1],  # jk,jm,lk,lm
+                            ], device=targets.device).float() * g  # offsets
 
         for i in range(self.nl):
-            anchors, shape = self.anchors[i], p[i].shape
-            gain[2:6] = torch.tensor(shape)[[3, 2, 3, 2]]  # xyxy gain
+            anchors = self.anchors[i]
+            gain[2:10] = torch.tensor(p[i].shape)[[3, 2, 3, 2, 3, 2, 3, 2]]  # xyxy gain
 
             # Match targets to anchors
-            t = targets * gain  # shape(3,n,7)
+            t = targets * gain
             if nt:
                 # Matches
-                r = t[..., 4:6] / anchors[:, None]  # wh ratio
-                j = torch.max(r, 1 / r).max(2)[0] < self.hyp['anchor_t']  # compare
+                txmin = torch.min(t[:, :, [2, 4, 6, 8]], dim=2).values
+                txmax = torch.max(t[:, :, [2, 4, 6, 8]], dim=2).values
+                tymin = torch.min(t[:, :, [3, 5, 7, 9]], dim=2).values
+                tymax = torch.max(t[:, :, [3, 5, 7, 9]], dim=2).values
+                twh = torch.stack([txmax - txmin, tymax - tymin], dim=2)
+
+                r = twh / anchors[:, None]  # wh ratio
+                j = torch.max(r, 1. / r).max(2)[0] < self.hyp['anchor_t']  # compare
                 # j = wh_iou(anchors, t[:, 4:6]) > model.hyp['iou_t']  # iou(3,n)=wh_iou(anchors(3,2), gwh(n,2))
                 t = t[j]  # filter
 
                 # Offsets
-                gxy = t[:, 2:4]  # grid xy
+                gx = torch.mean(t[:, [2, 4, 6, 8]], dim=1)
+                gy = torch.mean(t[:, [3, 5, 7, 9]], dim=1)
+                gxy = torch.stack([gx, gy], dim=1)
                 gxi = gain[[2, 3]] - gxy  # inverse
-                j, k = ((gxy % 1 < g) & (gxy > 1)).T
-                l, m = ((gxi % 1 < g) & (gxi > 1)).T
+                j, k = ((gxy % 1. < g) & (gxy > 1.)).T
+                l, m = ((gxi % 1. < g) & (gxi > 1.)).T
                 j = torch.stack((torch.ones_like(j), j, k, l, m))
                 t = t.repeat((5, 1, 1))[j]
                 offsets = (torch.zeros_like(gxy)[None] + off[:, None])[j]
@@ -220,15 +274,30 @@ class ComputeLoss:
                 offsets = 0
 
             # Define
-            bc, gxy, gwh, a = t.chunk(4, 1)  # (image, class), grid xy, grid wh, anchors
-            a, (b, c) = a.long().view(-1), bc.long().T  # anchors, image, class
+            b, c = t[:, :2].long().T  # image, class
+            gx = torch.mean(t[:, [2, 4, 6, 8]], dim=1)
+            gy = torch.mean(t[:, [3, 5, 7, 9]], dim=1)
+            gxy = torch.stack([gx, gy], dim=1)
+
+            if t.shape[0] > 0:
+                xmin = torch.min(t[:, [2, 4, 6, 8]], dim=1).values
+                xmax = torch.max(t[:, [2, 4, 6, 8]], dim=1).values
+                ymin = torch.min(t[:, [3, 5, 7, 9]], dim=1).values
+                ymax = torch.max(t[:, [3, 5, 7, 9]], dim=1).values
+                gwh = torch.stack([xmax - xmin, ymax - ymin], dim=1)
+            else:
+                gwh = torch.zeros([0, 2], device=targets.device)
             gij = (gxy - offsets).long()
-            gi, gj = gij.T  # grid indices
+            gi, gj = gij.T  # grid xy indices
+
+            gpts = t[:, 2:10]
 
             # Append
-            indices.append((b, a, gj.clamp_(0, shape[2] - 1), gi.clamp_(0, shape[3] - 1)))  # image, anchor, grid
-            tbox.append(torch.cat((gxy - gij, gwh), 1))  # box
+            a = t[:, 10].long()  # anchor indices
+            indices.append((b, a, gj.clamp_(0, gain[3].long() - 1), gi.clamp_(0, gain[2].long() - 1)))  # image, anchor, grid indices
+            tbox.append(torch.cat((gxy, gwh), 1))  # box
+            tpts.append(gpts)
             anch.append(anchors[a])  # anchors
             tcls.append(c)  # class
 
-        return tcls, tbox, indices, anch
+        return tcls, tbox, tpts, indices, anch
