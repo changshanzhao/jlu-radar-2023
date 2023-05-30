@@ -331,7 +331,7 @@ class mapMaintainer{
             pcl::transformPointCloud<pcl::PointXYZI>(*in_cloud,*pcl2camera_cloud,Ts);
             
 
-            std::cout<<"pcl2camera_cloud size"<<pcl2camera_cloud->size()<<std::endl;
+            // std::cout<<"pcl2camera_cloud size"<<pcl2camera_cloud->size()<<std::endl;
             for (const auto& pointc : pcl2camera_cloud->points)//cloud->points ?
             {
               cv::Point2d pixel0=cam_model.project3dToPixel(cv::Point3d(pointc.x, pointc.y, pointc.z));
@@ -347,9 +347,16 @@ class mapMaintainer{
               //std::cout<<"pointc.x  "<<pointc.x<<std::endl;
               image.at<Vec3d>(pixel0.y,pixel0.x)[1]=pointc.y;
               image.at<Vec3d>(pixel0.y,pixel0.x)[2]=pointc.z;
+
               //cout<<"Depth:  "<< depth <<endl;
               }
-            }        
+            } 
+            float d=image.at<Vec3d>(2,1)[0];
+            float e=image.at<Vec3d>(2,1)[1];
+            float f=image.at<Vec3d>(2,1)[2];
+            std::cout<<"固定点坐标：    "<<d<<std::endl;
+            std::cout<<"固定点坐标：    "<<e<<std::endl;
+            std::cout<<"固定点坐标：    "<<f<<std::endl;
             // 展示转换结果
             cv::imshow("Projected Point Cloud", image);
             cv::waitKey(1);
@@ -362,14 +369,20 @@ class mapMaintainer{
         //Eigen::Vector3f point_vector = point.getVector3fMap();
         //std::cout << "Point cloud coordinate: (" << point_vector(0) << ", " << point_vector(1) << ", " << point_vector(2) << ")" << std::endl;
             std::cout<<"05"<<std::endl;
-            int num_boxes=sizeof(bounding_boxes)/2;
-            for(int t=0;t<=num_boxes;t++){
+            
+            int num_boxes=bounding_boxes->bounding_boxes.size();
+            std::cout<<"信息数"<<num_boxes<<std::endl;
+            for(int t=0;t<num_boxes;t++){
+                
                 int x=bounding_boxes->bounding_boxes[t].x;
                 int y=bounding_boxes->bounding_boxes[t].y;
                 int cl=bounding_boxes->bounding_boxes[t].cl;
-                float a=image.at<Vec3b>(x,y)[0];
-                float b=image.at<Vec3b>(x,y)[1];
-                float c=image.at<Vec3b>(x,y)[2];
+
+                std::cout<<"yolov5传来的x:  "<<x<<std::endl;
+                std::cout<<"yolov5传来的y:  "<<y<<std::endl;
+                float a=image.at<Vec3d>(y,x)[0];
+                float b=image.at<Vec3d>(y,x)[1];
+                float c=image.at<Vec3d>(y,x)[2];
                 std::cout<<"车辆信息：  "<<cl<<std::endl;
                 std::cout << "车辆中心点坐标:   " << "(" << a<<","<<b<<","<<c<<")"<<std::endl;
                 std::cout<<std::endl;                
