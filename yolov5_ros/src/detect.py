@@ -129,7 +129,7 @@ class Yolov5Detector:
         im /= 255
         if len(im.shape) == 3:
             im = im[None]
-		bounding_boxes = BoundingBoxes()
+        bounding_boxes = BoundingBoxes()
         pred_raw = self.model(im)[0].detach().cpu()
         pred = []
         for p in pred_raw:
@@ -214,7 +214,7 @@ class Yolov5Detector:
                     bounding_box.y = int((int(d[1])+int(d[3])+int(d[5])+int(d[7]))/4)
                     bounding_box.cl = int(d[-1])
                     bounding_boxes.bounding_boxes.append(bounding_box)
-			im0 = annotator.result()
+                    im0 = annotator.result()
 					
 
 
