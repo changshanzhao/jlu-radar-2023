@@ -344,7 +344,6 @@ class mapMaintainer{
               //std::cout<<"pixel0.x  "<<pixel0.x<<std::endl;
               //std::cout<<"pixel0.y  "<<pixel0.y<<std::endl;
               image.at<Vec3d>(int(pixel0.y),int(pixel0.x))[0]=pointc.x;
-              //std::cout<<"pointc.x  "<<pointc.x<<std::endl;
               image.at<Vec3d>(pixel0.y,pixel0.x)[1]=pointc.y;
               image.at<Vec3d>(pixel0.y,pixel0.x)[2]=pointc.z;
 
@@ -354,9 +353,9 @@ class mapMaintainer{
             float d=image.at<Vec3d>(2,1)[0];
             float e=image.at<Vec3d>(2,1)[1];
             float f=image.at<Vec3d>(2,1)[2];
-            std::cout<<"固定点坐标：    "<<d<<std::endl;
-            std::cout<<"固定点坐标：    "<<e<<std::endl;
-            std::cout<<"固定点坐标：    "<<f<<std::endl;
+            // std::cout<<"固定点坐标：    "<<d<<std::endl;
+            // std::cout<<"固定点坐标：    "<<e<<std::endl;
+            // std::cout<<"固定点坐标：    "<<f<<std::endl;
             // 展示转换结果
             cv::imshow("Projected Point Cloud", image);
             cv::waitKey(1);
@@ -368,7 +367,6 @@ class mapMaintainer{
         // Calculate 3D coordinates of point in point cloud
         //Eigen::Vector3f point_vector = point.getVector3fMap();
         //std::cout << "Point cloud coordinate: (" << point_vector(0) << ", " << point_vector(1) << ", " << point_vector(2) << ")" << std::endl;
-            std::cout<<"05"<<std::endl;
             
             int num_boxes=bounding_boxes->bounding_boxes.size();
             std::cout<<"信息数"<<num_boxes<<std::endl;
@@ -388,7 +386,6 @@ class mapMaintainer{
                 std::cout<<std::endl;                
 
             }
-            std::cout<<"06"<<std::endl;
         }
         
 
