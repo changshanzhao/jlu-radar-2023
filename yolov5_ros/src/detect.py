@@ -29,7 +29,7 @@ from utils.general import (
     check_img_size,
     check_requirements,
     non_max_suppression,
-	scale_coords
+    scale_coords
 )
 from utils.plots import Annotator, colors
 from utils.torch_utils import select_device
@@ -55,33 +55,33 @@ class Yolov5Detector:
         self.classes = rospy.get_param("~classes", None)
         self.line_thickness = rospy.get_param("~line_thickness")
         self.view_image = rospy.get_param("~view_image")
-		self.half = rospy.get_param("~half", False)
+        self.half = rospy.get_param("~half", False)
         # Initialize weights 
         weights = rospy.get_param("~weights")
         # Initialize model
         self.device = select_device(str(rospy.get_param("~device","")))
-		self.half &= self.device.type != 'cpu'
-		w = str(weights[0] if isinstance(weights, list) else weights)
-		classify, suffix, suffixes = False, Path(w).suffix.lower(), ['.pt', '.onnx', '.tflite', '.pb', '']
-		check_suffix(w, suffixes)  # check weights have acceptable suffix
-		self.pt, self.onnx, self.stflite, self.pb, self.saved_model = (suffix == x for x in suffixes)  # backend booleans
-		self.stride, self.names = 64, [f'class{i}' for i in range(1000)]  # assign defaults
-		if self.pt:
-			self.model = torch.jit.load(w) if 'torchscript' in w else attempt_load(weights, map_location=self.device)
-			self.stride = int(self.model.stride.max())  # model stride
-			self.names = self.model.module.names if hasattr(self.model, 'module') else self.model.names  # get class names
-			if self.half:
-				self.model.half()  # to FP16
-			if classify:  # second-stage classifier
-				modelc = load_classifier(name='resnet50', n=2)  # initialize
-				modelc.load_state_dict(torch.load('resnet50.pt', map_location=self.device)['model']).to(self.device).eval()
+        self.half &= self.device.type != 'cpu'
+        w = str(weights[0] if isinstance(weights, list) else weights)
+        classify, suffix, suffixes = False, Path(w).suffix.lower(), ['.pt', '.onnx', '.tflite', '.pb', '']
+        check_suffix(w, suffixes)  # check weights have acceptable suffix
+        self.pt, self.onnx, self.stflite, self.pb, self.saved_model = (suffix == x for x in suffixes)  # backend booleans
+        self.stride, self.names = 64, [f'class{i}' for i in range(1000)]  # assign defaults
+        if self.pt:
+            self.model = torch.jit.load(w) if 'torchscript' in w else attempt_load(weights, map_location=self.device)
+            self.stride = int(self.model.stride.max())  # model stride
+            self.names = self.model.module.names if hasattr(self.model, 'module') else self.model.names  # get class names
+            if self.half:
+                self.model.half()  # to FP16
+            if classify:  # second-stage classifier
+                modelc = load_classifier(name='resnet50', n=2)  # initialize
+                modelc.load_state_dict(torch.load('resnet50.pt', map_location=self.device)['model']).to(self.device).eval()
 
         # Setting inference size
         self.img_size = [rospy.get_param("~inference_size_w", 640), rospy.get_param("~inference_size_h",480)]
         self.img_size = check_img_size(self.img_size, s=self.stride)
-		if self.pt and self.device.type != 'cpu':
-			self.model(torch.zeros(1, 3, *self.img_size).to(self.device).type_as(next(self.model.parameters())))  # run once
-		
+        if self.pt and self.device.type != 'cpu':
+            self.model(torch.zeros(1, 3, *self.img_size).to(self.device).type_as(next(self.model.parameters())))  # run once
+        
         # Initialize subscriber to Image/CompressedImage topic
         input_image_type, input_image_topic, _ = get_topic_type("/Gxcam_node/cam_image", blocking = True)
         self.compressed_input = input_image_type == "sensor_msgs/CompressedImage"
@@ -215,7 +215,7 @@ class Yolov5Detector:
                     bounding_box.cl = int(d[-1])
                     bounding_boxes.bounding_boxes.append(bounding_box)
                     im0 = annotator.result()
-					
+                    
 
 
         # det = pred[0].cpu().numpy()
