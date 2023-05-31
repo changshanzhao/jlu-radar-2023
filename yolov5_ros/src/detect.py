@@ -36,12 +36,10 @@ from utils.torch_utils import select_device
 from utils.augmentations import letterbox
 """
 from models.experimental import attempt_load
-from utils.datasets import LoadImages, LoadStreams
-from utils.general import apply_classifier, check_img_size, check_imshow, check_requirements, check_suffix, colorstr, \
-    increment_path, non_max_suppression, print_args, save_one_box, scale_coords, set_logging, \
-    strip_optimizer, xyxy2xywh
-from utils.plots import Annotator, colors
-from utils.torch_utils import load_classifier, select_device, time_sync
+from utils.general import check_img_size, check_imshow, check_requirements, check_suffix, \
+    non_max_suppression, scale_coords
+from utils.plots import Annotator
+from utils.torch_utils import load_classifier, select_device
 from utils.augmentations import letterbox
 
 
