@@ -59,8 +59,8 @@ float rad2dgree(float r){
 class mapMaintainer{
     public:
         mapMaintainer(std::string topic_name) : nh_("/"), cloud_topic_name_(topic_name),image(2048,1536,CV_64FC3){
-            init_ros();
             init_params();
+            init_ros();
             init_pcl();
             record_file_ = fopen("record.csv", "wb+");
             record_file_t_ = fopen("record_t.csv", "wb+");
@@ -117,6 +117,7 @@ class mapMaintainer{
                 0,0,0,1   
             ;
             image=Mat::zeros(Size(2048,1536),CV_64FC3);
+            Solvepnp();
         }
 
         void time_count(std::string filename, void (*func)(void)){
@@ -243,6 +244,32 @@ class mapMaintainer{
             }
         }
 
+        //角度解算函数
+        void Solvepnp()
+        {
+            std::vector<Point3f> objectps;
+            objectps.push_back(cv::Point3f(0,0,0));
+            objectps.push_back(cv::Point3f(1.5,0,0));
+            objectps.push_back(cv::Point3f(0,0.87,0));
+            objectps.push_back(cv::Point3f(0,1.5,0.87));
+
+            std::vector<Point2f> imageps;
+            imageps.push_back(cv::Point2f(1976,453));
+            imageps.push_back(cv::Point2f(690,61));
+            imageps.push_back(cv::Point2f(1427,890));
+            imageps.push_back(cv::Point2f(55,312));
+
+            cv::Mat InM=((cv::Mat_<double>(3,3)<<3514.33,0,954.575,0,3514.23,764.96,0,0,1));
+            cv::Mat DiM=((cv::Mat_<double>(5,1)<<-0.057268,0.195162,-0.001675,-0.001939,0));
+
+            rvec =(cv::Mat_<double>(3,3));
+            tvec =(cv::Mat_<double>(3,1));
+            cv:: solvePnP(objectps, imageps, InM, DiM, rvec, tvec, false, SolvePnPMethod::SOLVEPNP_P3P);
+            Rodrigues(rvec, rvec_Matrix);
+            std::cout<<"旋转矩阵：  "<<rvec_Matrix<<std::endl;
+            std::cout<<"平移矩阵：  "<<tvec<<std::endl;
+        }
+
         //发布相机参数的话题，distortion_coefficients是D，camera_matrix是K，projection_matrix是P，rectification_matrix是R，相机雷达联合标定结果：T
         sensor_msgs::CameraInfo getCameraInfo(void){        
         sensor_msgs::CameraInfo cam;
@@ -254,7 +281,7 @@ class mapMaintainer{
                0.     ,    0.     ,    1.     
         };
 
-         boost::array<double, 12> P = {
+        boost::array<double, 12> P = {
             3500.05005,    0.     ,  952.05403,    0.     ,
                0.     , 3504.17798,  763.58506,    0.     ,
                0.     ,    0.     ,    1.     ,    0.     
@@ -338,7 +365,6 @@ class mapMaintainer{
               //计算每个点对应的深度值
               //Eigen::Vector3f point_vector=point.getVector3fMap();
               //float depth=point_vector.norm();
-              image.at<Vec3d>(int(2044),int(193))[0];
               if(0<=pixel0.x && pixel0.x < 2048 && 0 <= pixel0.y && pixel0.y <1536)
               {  
               //std::cout<<"pixel0.x  "<<pixel0.x<<std::endl;
@@ -383,8 +409,15 @@ class mapMaintainer{
                 float c=image.at<Vec3d>(y,x)[2];
                 std::cout<<"车辆信息：  "<<cl<<std::endl;
                 std::cout << "车辆中心点坐标:   " << "(" << a<<","<<b<<","<<c<<")"<<std::endl;
-                std::cout<<std::endl;                
+                std::cout<<std::endl; 
 
+                cv::Mat Pc=((cv::Mat_<double>(3,1)<<a,b,c));
+                cv::Mat world_point_mat = rvec_Matrix * Pc + tvec;
+                // 将输出点坐标转换为行向量形式
+               float world_x=world_point_mat.at<float>(0,0);
+               float world_y=world_point_mat.at<float>(1,0);
+               float world_z=world_point_mat.at<float>(2,0);
+               std::cout << "车辆中心点世界坐标:   " << "(" << world_x<<","<<world_y<<","<<world_z<<")"<<std::endl;
             }
         }
         
@@ -481,6 +514,9 @@ class mapMaintainer{
         cv::Mat image;
         //double Ts[4][4]
         Eigen::Matrix4f Ts;
+        cv::Mat rvec;
+        cv::Mat tvec;
+        cv::Mat rvec_Matrix;
 
         std::vector<KD_TREE<pcl::PointXYZI>::PointVector> sub_map_buffs_;
         std::vector<KD_TREE<pcl::PointXYZI>::Ptr> map_list_kd_;
@@ -498,7 +534,6 @@ int main(int argc, char **argv){
     ROS_INFO("Start node");
 
     mapMaintainer m("livox/lidar");
-    
     //ros::init(argc, argv, "camera_info");  
     ros::NodeHandle n;  //是否需要ros::NodeHandle nh;
     ros::Publisher pub = n.advertise<sensor_msgs::CameraInfo>("/camera/camera_info", 1000);  
